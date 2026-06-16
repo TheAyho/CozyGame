@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CozySpace: Pixel Life RPG</title>
+    <!-- Подключаем Telegram Web App SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Подключаем легкий игровой движок Phaser.js -->
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+    <!-- Подключаем клиент базы данных Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Интеграция Adsgram (Официальный скрипт для монетизации TMA) -->
+    <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+    
+    <style>
+        * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+        body { 
+            margin: 0; padding: 0; 
+            background-color: #1a1c23; 
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            color: #e2e8f0;
+            display: block;
+            overflow: hidden;
+            height: 100vh;
+        }
+        #app-container {
+            width: 100%;
+            height: 100vh;
+            position: relative;
+            display: block;
+        }
+        #ui-header { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 60px;
+            background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(8px);
+            border-bottom: 2px solid #334155; padding: 0 16px;
+            z-index: 10; display: table; content: "";
+        }
+        .header-cell {
+            display: table-cell; vertical-align: middle;
+        }
+        .header-left { text-align: left; }
+        .header-right { text-align: right; }
+        .stat-badge {
+            background: #0f172a; padding: 6px 12px; border-radius: 20px;
+            font-weight: bold; border: 1px solid #475569; font-size: 14px;
+            color: #f8fafc; display: inline-block; margin-right: 8px;
+        }
+        .coin-badge { color: #f59e0b; border-color: #d97706; }
+        #game-canvas-container { 
+            width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1;
+        }
+        #ui-footer { 
+            position: absolute; bottom: 0; left: 0; width: 100%; height: 90px;
+            background: rgba(30, 41, 59, 0.9); backdrop-filter: blur(8px);
+            border-top: 2px solid #334155; padding: 12px 16px;
+            z-index: 10; text-align: center;
+        }
+        .btn { 
+            background: #3b82f6; border: none; color: white; padding: 12px 24px; 
+            font-size: 16px; cursor: pointer; border-radius: 12px; font-weight: bold; 
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2); transition: all 0.2s;
+            display: inline-block; margin: 0 6px; min-width: 120px;
+        }
+        .btn-focus { background: #ef4444; }
+        .btn-focus.active { background: #22c55e; animation: pulse 2s infinite; }
+        .btn-ads { background: #8b5cf6; border-color: #7c3aed; }
+        #timer-display { 
+            font-size: 28px; font-weight: 800; color: #f8fafc; font-family: monospace;
+            margin-bottom: 6px; text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.03); }
+            100% { transform: scale(1); }
+        }
+        #shop-menu {
+            position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
+            width: 90%; max-width: 400px; background: #1e293b; border: 2px solid #475569;
+            border-radius: 16px; padding: 16px; z-index: 20; display: none;
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
+        }
+        .shop-title { font-weight: bold; font-size: 18px; margin-bottom: 12px; text-align: center; color: #f59e0b; }
+        .shop-grid { display: block; max-height: 200px; overflow-y: auto; }
+        .shop-item {
+            background: #334155; padding: 10px; border-radius: 8px; margin-bottom: 8px;
+            display: table; width: 100%;
+        }
+        .shop-item-cell { display: table-cell; vertical-align: middle; }
+        .shop-item-name { font-weight: 600; color: #fff; }
+        .shop-item-price { color: #f59e0b; font-size: 13px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <!-- ВЕРХНЯЯ ПАНЕЛЬ С ДАННЫМИ ИГРОКА -->
+        <div id="ui-header">
+            <div class="header-cell header-left">
+                <div id="user-name" style="font-weight: 700; font-size: 16px;">Загрузка...</div>
+                <div id="user-level" style="font-size: 12px; color: #94a3b8;">Уровень 1 (0 XP)</div>
+            </div>
+            <div class="header-cell header-right">
+                <span class="stat-badge coin-badge" id="balance-display">💰 0</span>
+            </div>
+        </div>
+
+        <!-- ИГРОВОЙ ХОЛСТ PHASER -->
+        <div id="game-canvas-container"></div>
+
+        <!-- ОКНО МАГАЗИНА МЕБЕЛИ -->
+        <div id="shop-menu">
+            <div class="shop-title">🪑 Пиксельный магазин</div>
+            <div class="shop-grid" id="shop-items-list">
+                <!-- Элементы генерируются динамически через JS -->
+            </div>
+            <button class="btn" style="width:100%; margin: 8px 0 0 0; background:#475569;" onclick="toggleShop()">Закрыть</button>
+        </div>
+
+        <!-- НИЖНЯЯ ПАНЕЛЬ С УПРАВЛЕНИЕМ -->
+        <div id="ui-footer">
+            <div id="timer-display">25:00</div>
+            <button class="btn btn-focus" id="btn-focus-action" onclick="handleFocusClick()">Фокус</button>
+            <button class="btn" onclick="toggleShop()">Магазин</button>
+            <button class="btn btn-ads" onclick="showRewardAd()">+50 💰 (Реклама)</button>
+        </div>
+    </div>
+
+<script>
+    // Инициализация Telegram Web App
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+
+    // КОНФИГУРАЦИЯ БАЗЫ ДАННЫХ SUPABASE
+    // Замените на ваши реальные ключи после развертывания проекта в Supabase
+    const SUPABASE_URL = "https://ibsvbfoezclsaqlbtend.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_HmkMfPH6OO_fp3hppRd5MQ_PXbmFS2u";
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // ПОДКЛЮЧЕНИЕ REWARDED ADS (ADSGRAM)
+    // Разместите здесь ваш Block ID, полученный на панели adsgram.ai
+    const ADSGRAM_BLOCK_ID = "YOUR_ADSGRAM_BLOCK_ID";
+    let AdController = null;
+
+    if (window.Adsgram) {
+        AdController = window.Adsgram.createAdListener({ blockId: ADSGRAM_BLOCK_ID });
+    }
+
+    // ВНУТРЕННЕЕ СОСТОЯНИЕ ИГРЫ
+    let userState = {
+        id: null,
+        telegram_id: tg.initDataUnsafe?.user?.id || 999999, // Заглушка, если запуск вне TG
+        username: tg.initDataUnsafe?.user?.username || "Уютный Гость",
+        balance_cozy: 0,
+        xp: 0,
+        level: 1
+    };
+
+    let shopItems = [];
+    let isFocusActive = false;
+    let secondsRemaining = 1500; // 25 минут по умолчанию
+    let countdownInterval = null;
+    let phaserScene = null;
+
+    // СТАРТ ПРИЛОЖЕНИЯ
+    async function startApp() {
+        await fetchOrCreateUser();
+        await loadShopItems();
+        updateUserInterface();
+        initPhaserGame();
+    }
+
+    // СИНХРОНИЗАЦИЯ С SUPABASE
+    async function fetchOrCreateUser() {
+        let { data: user, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('telegram_id', userState.telegram_id)
+            .single();
+
+        if (!user) {
+            let { data: newUser, error: createError } = await supabase
+                .from('users')
+                .insert([{ 
+                    telegram_id: userState.telegram_id, 
+                    username: userState.username,
+                    balance_cozy: 150 // Бонус на старт
+                }])
+                .select()
+                .single();
+            user = newUser;
+        }
+
+        if (user) {
+            userState = { ...userState, ...user };
+        }
+    }
+
+    async function loadShopItems() {
+        let { data: items, error } = await supabase.from('furniture_shop').select('*');
+        if (items) {
+            shopItems = items;
+            renderShopItems();
+        }
+    }
+
+    // ОБНОВЛЕНИЕ ИНТЕРФЕЙСА
+    function updateUserInterface() {
+        document.getElementById('user-name').innerText = userState.username;
+        document.getElementById('user-level').innerText = `Уровень ${userState.level} (${userState.xp} XP)`;
+        document.getElementById('balance-display').innerText = `💰 ${userState.balance_cozy}`;
+    }
+
+    function renderShopItems() {
+        const container = document.getElementById('shop-items-list');
+        container.innerHTML = '';
+        shopItems.forEach(item => {
+            container.innerHTML += `
+                <div class="shop-item">
+                    <div class="shop-item-cell" style="width: 65%;">
+                        <div class="shop-item-name">${item.name}</div>
+                        <div class="shop-item-price">💰 ${item.price} COZY</div>
+                    </div>
+                    <div class="shop-item-cell" style="width: 35%; text-align:right;">
+                        <button class="btn" style="padding:6px 12px; font-size:13px; min-width:auto; margin:0;" onclick="buyFurniture(${item.id}, ${item.price})">Купить</button>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    function toggleShop() {
+        const shop = document.getElementById('shop-menu');
+        shop.style.display = (shop.style.display === 'block') ? 'none' : 'block';
+    }
+
+    // ПОКУПКА ПРЕДМЕТА И ИГРОВАЯ ЭКОНОМИКА
+    async function buyFurniture(itemId, price) {
+        if (userState.balance_cozy < price) {
+            tg.showAlert("Недостаточно монет! Запустите режим фокуса или посмотрите рекламу.");
+            return;
+        }
+
+        const newBalance = userState.balance_cozy - price;
+        let { data, error } = await supabase
+            .from('users')
+            .update({ balance_cozy: newBalance })
+            .eq('id', userState.id)
+            .select()
+            .single();
+
+        if (data) {
+            userState.balance_cozy = data.balance_cozy;
+            updateUserInterface();
+            
+            // Получаем случайные координаты внутри комнаты для Phaser
+            const rx = Math.floor(Math.random() * 300) + 150;
+            const ry = Math.floor(Math.random() * 200) + 100;
+            
+            await supabase.from('placed_furniture').insert([
+                { user_id: userState.id, furniture_id: itemId, pos_x: rx, pos_y: ry }
+            ]);
+
+            const itemData = shopItems.find(i => i.id === itemId);
+            if (phaserScene && itemData) {
+                phaserScene.spawnFurniture(rx, ry, itemData.asset_key);
+            }
+            
+            tg.HapticFeedback.notificationOccurred('success');
+        }
+    }
+
+    // РАБОТА С ТАЙМЕРОМ ФОКУСА
+    function handleFocusClick() {
+        const btn = document.getElementById('btn-focus-action');
+        if (isFocusActive) {
+            // Прерывание фокуса
+            clearInterval(countdownInterval);
+            isFocusActive = false;
+            secondsRemaining = 1500;
+            btn.innerText = "Фокус";
+            btn.classList.remove('btn-focus-action', 'active');
+            updateTimerText();
+        } else {
+            // Запуск фокуса
+            isFocusActive = true;
+            btn.innerText = "Стоп";
+            btn.classList.add('btn-focus-action', 'active');
+            
+            countdownInterval = setInterval(async () => {
+                secondsRemaining--;
+                updateTimerText();
+
+                if (secondsRemaining <= 0) {
+                    clearInterval(countdownInterval);
+                    isFocusActive = false;
+                    secondsRemaining = 1500;
+                    btn.innerText = "Фокус";
+                    btn.classList.remove('active');
+                    updateTimerText();
+
+                    // Награда за фокус: +50 монет и +25 XP
+                    let newXp = userState.xp + 25;
+                    let newLevel = userState.level;
+                    if (newXp >= newLevel * 100) {
+                        newLevel += 1;
+                    }
+
+                    let { data } = await supabase
+                        .from('users')
+                        .update({ 
+                            balance_cozy: userState.balance_cozy + 50,
+                            xp: newXp,
+                            level: newLevel
+                        })
+                        .eq('id', userState.id)
+                        .select()
+                        .single();
+
+                    if (data) {
+                        userState = { ...userState, ...data };
+                        updateUserInterface();
+                        tg.showPopup({
+                            title: "Отличный фокус! 🔥",
+                            message: "Вы успешно удержали концентрацию в течение 25 минут, заработали 50 монет и прокачали свой уютный пиксельный мир!",
+                            buttons: [{ type: "ok" }]
+                        });
+                    }
+                }
+            }, 1000);
+        }
+    }
+
+    function updateTimerText() {
+        const mins = Math.floor(secondsRemaining / 60).toString().padStart(2, '0');
+        const secs = (secondsRemaining % 60).toString().padStart(2, '0');
+        document.getElementById('timer-display').innerText = `${mins}:${secs}`;
+    }
+
+    // ИНТЕГРАЦИЯ МОНЕТИЗАЦИИ ЧЕРЕЗ ADSGRAM (ЧИСТЫЙ ПАССИВНЫЙ ДОХОД)
+    function showRewardAd() {
+        if (!AdController) {
+            // Если запуск локальный или плагин заблокирован, эмулируем выдачу награды для теста
+            applyAdReward();
+            return;
+        }
+
+        AdController.show()
+            .then(() => {
+                // Реклама просмотрена до конца — начисляем монеты
+                applyAdReward();
+            })
+            .catch((err) => {
+                console.error("Ошибка отображения рекламы:", err);
+                tg.showAlert("Реклама не загрузилась или была закрыта раньше времени.");
+            });
+    }
+
+    async function applyAdReward() {
+        const newBalance = userState.balance_cozy + 50;
+        let { data } = await supabase
+            .from('users')
+            .update({ balance_cozy: newBalance })
+            .eq('id', userState.id)
+            .select()
+            .single();
+
+        if (data) {
+            userState.balance_cozy = data.balance_cozy;
+            updateUserInterface();
+            tg.showAlert("Спасибо за просмотр! Вам начислено 50 COZY 💰");
+        }
+    }
+
+    // ИГРОВОЙ ДВИЖОК PHASER.JS (РЕАКЦИЯ НА ПОКУПКИ)
+    function initPhaserGame() {
+        const config = {
+            type: Phaser.AUTO,
+            width: window.innerWidth,
+            height: window.innerHeight - 150,
+            parent: 'game-canvas-container',
+            backgroundColor: '#1e293b',
+            scene: {
+                preload: function() {
+                    // Загружаем заглушки-текстуры. В релизе меняем на красивые пиксель-арты.
+                    this.load.image('room_base', 'https://placehold.co/400x300/1e293b/334155?text=Cozy+Room');
+                    this.load.image('rug', 'https://placehold.co/60x40/f59e0b/ffffff?text=Rug');
+                    this.load.image('table', 'https://placehold.co/70x50/b45309/ffffff?text=Table');
+                    this.load.image('plant', 'https://placehold.co/30x40/10b981/ffffff?text=Plant');
+                    this.load.image('chair', 'https://placehold.co/40x40/3b82f6/ffffff?text=Chair');
+                },
+                create: function() {
+                    phaserScene = this;
+                    
+                    // Отрисовка центральной комнаты
+                    const cx = window.innerWidth / 2;
+                    const cy = (window.innerHeight - 150) / 2;
+                    this.add.image(cx, cy, 'room_base').setScale(1.2);
+
+                    // Восстанавливаем уже купленную мебель из базы данных
+                    loadAndDisplayPlacedFurniture(cx, cy);
+                }
+            }
+        };
+
+        const game = new Phaser.Game(config);
+        
+        // Позволяет сцене динамически спавнить объекты на холсте
+        phaserScene.spawnFurniture = function(x, y, assetKey) {
+            const obj = phaserScene.add.image(x, y, assetKey).setInteractive();
+            // Включаем drag-and-drop для кастомизации комнаты пользователем вручную
+            phaserScene.input.setDraggable(obj);
+            
+            obj.on('drag', function(pointer, dragX, dragY) {
+                obj.x = dragX;
+                obj.y = dragY;
+            });
+
+            obj.on('dragend', async function() {
+                // Здесь в будущем можно сохранять новые координаты мебели при перетаскивании
+                tg.HapticFeedback.impactOccurred('light');
+            });
+        };
+    }
+
+    async function loadAndDisplayPlacedFurniture(cx, cy) {
+        let { data: furniture, error } = await supabase
+            .from('placed_furniture')
+            .select('*, furniture_shop(asset_key)')
+            .eq('user_id', userState.id);
+
+        if (furniture) {
+            furniture.forEach(f => {
+                if (f.furniture_shop && f.furniture_shop.asset_key) {
+                    phaserScene.spawnFurniture(f.pos_x, f.pos_y, f.furniture_shop.asset_key);
+                }
+            });
+        }
+    }
+
+    // Запуск приложения при полной загрузке страницы
+    window.addEventListener('load', startApp);
+</script>
+</body>
+</html>
